@@ -6,8 +6,9 @@ using CUDA
 using Flux
 using BenchmarkTools
 
-#using Pluto
-#Pluto.run(workspace_use_distributed=false)
+using Pluto
+Pluto.run(workspace_use_distributed=false)
+
 
 function softmax_basic(x) 
 	exps = exp.(x)
