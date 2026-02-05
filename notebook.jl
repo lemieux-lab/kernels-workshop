@@ -18,9 +18,19 @@ md"""
 # Hello! :)
 """
 
+# ╔═╡ afa298c8-f482-40ca-a73d-80ffab61c8e7
+md"""
+In Julia, GPU usage is already optimized for many processes through CUDA.jl. Simply by applying a function to a CuArray, operations (e.g. broadcasting and map-reducing) are executed on GPU-specialized code. Additionally, more complex tasks, such as operations in machine learning algorithms like self-attention, have optimized code through cuDNN.jl. 
+
+These are done through GPU kernels, which implement functions that exploit the CUDA architecture of GPUs.
+
+Today, we will show how to write such kernels, for when already-optimized kernels do not already exist.
+ 
+"""
+
 # ╔═╡ 2627ab83-84ed-4ed3-9dfc-95a1bdb96bcf
 md"""
-# GPU Architecture
+# GPU CUDA Architecture
 
 ![gpu](https://modal-cdn.com/gpu-glossary/light-green-cuda-programming-model.svg)
 *https://modal.com/gpu-glossary/device-software/thread*
@@ -31,17 +41,17 @@ Threads are the lowest level of the hierarchy (like in CPUs)! With GPUs, however
 Thus, threads can coordinate/sync with one another within a block using shared memory. Can be indexed (x, y, z).
 
 ## Blocks
-Blocks are the smallest unit of thread coordination, wherein each block must execute independently and without order (in parallel given enough resources). A single CUDA kernel launch will produce one or more thread blocks. 
+Blocks are the smallest unit of thread coordination, wherein each block must execute independently and without order (in parallel, given enough resources). A single CUDA kernel launch produces one or more thread blocks that run asynchronously. 
 
-Blocks are arbitrarily sized (up to 1028), but typicaly multiples of warp size (up to 32). Can also be indexed (x, y, z).
+Blocks are arbitrarily sized (up to 1028), but typically multiples of warp size (up to 32). Can also be indexed (x, y, z).
 
 ## Grids
-Grids are made up of a collection of thread blocks and this spans the entire GPU (basically global context of the kernel). Can be 1D, 2D, or 3D.
+Grids are made up of a collection of thread blocks, and this spans the entire GPU (basically global context of the kernel). Can be 1D, 2D, or 3D.
 
 ## Warps
-A warp is a group of threads that are scheduled together and execute in parallel. Since blocks don't necessarily have to share the same task, warps are the unit of execution on the GPU. Thus, all threads within a warp will have theh same task. 
+A warp is a group of threads that are scheduled together and execute in parallel. Since blocks don't necessarily have to share the same task, warps are the unit of execution on the GPU. Thus, all threads within a warp will have the same task. 
 
-This isn't actually a part of the GPU architectural hierarchy, but more of an implementation detail.
+This isn't actually part of the GPU architectural hierarchy in CUDA, but more an implementation detail that's useful to keep in mind for optimization.
 """
 
 # ╔═╡ 1d38f704-0c74-41e0-ad24-e37e7a8dd66c
@@ -87,7 +97,7 @@ CUDA.registers(k)
 md"""
 The `launch=false` compiles the function without actually executing it. The result is a HostKernel object. 
 
-Looking at the `.registers()` essentially shows the complexity of the kernel (lower registers = more active threads).
+Looking at the `.registers()` essentially shows the complexity of the kernel (fewer registers = more active threads at once).
 """
 
 # ╔═╡ 8be67136-f565-4637-9209-3ce90934fd00
@@ -100,6 +110,8 @@ md"""
 # ╔═╡ fc3fc738-2ebc-49f3-93ab-050b56c9c7b2
 md"""
 GPU kernels cannot return values to the CPU like a regular function, so it must always be set to `return` or `return nothing`. So, to work with values, we can pass a `CuArray` aka writing our results to GPU arrays!
+
+**Note:** Though a CuArray is given to the function when it is launched, the input is converted to a CuDeviceArray before execution.
 """
 
 # ╔═╡ 80549d51-0948-49d6-8781-3c6368faa336
@@ -127,7 +139,9 @@ Via: `@cushow rand()`
 
 # ╔═╡ b48a0560-692e-41ec-b36d-300a5e63ef97
 md"""
-With the example above, we just took the log of the first value in the array. Note: you usually want to only access/write into your gloabl memory (`input`) once. Which is why we assign the variable `data`.
+With the example above, we took the log of only the first value in the array. 
+
+**Note**: you usually want to only access/write into your global memory (`input`) once. Which is why we assign the variable `data`.
 """
 
 # ╔═╡ 4b4a2b81-eef1-43e0-8388-17384b9de687
@@ -146,7 +160,7 @@ md"""
 # ╔═╡ df96c222-c395-4006-bc02-fefb8f8457bb
 md"""
 #### By threads
-To process data that fits inside one block only, we can extract just the threads using `threadIdx()`.
+To process data that fits inside one block only, we can extract just the thread index using `threadIdx()`.
 """
 
 # ╔═╡ fe781ab8-66ad-4bc9-aec3-92f701bf4e10
@@ -184,7 +198,7 @@ b
 
 # ╔═╡ 7e8cbfb8-4c35-406b-93cd-ac34a8b5e22f
 md"""
-In specifying the threads, we get a cube of threads of size (2, 2, 2) so we get 8 threads! However, we don't always set threads to the size of your data. This would be terrible as the maximum number of threads is usually 1024. To cover the remaining data, we'd have to assign one thread per data point (aka **By index**)
+In specifying the threads, we get a cube of threads of size (2, 2, 2) so we get 8 threads total! However, we don't always set threads to the size of your data. This would be terrible as the maximum number of threads in a block is usually 1024, meaning that the amount of parallelism per block is limited. 
 """
 
 # ╔═╡ fc49373a-4e6f-4a4c-984b-4286ccd7c0df
@@ -293,7 +307,9 @@ d = CUDA.ones(Float32, (2, 2))
 
 # ╔═╡ 94e4169b-ba67-46e6-86c5-d8f7dfd8c227
 md"""
-We calculate `cld()` to do ceiling division of the input dimension by the number of threads per block (32). Thus, we will have the minumum number of blocks needed to encapsulate all of the data.
+We calculate `cld()` to do ceiling division of the input dimension by the number of threads per block (32). Thus, we will have the minimum number of blocks needed to encapsulate all of the data.
+
+This does mean that some threads will remain unused, i.e. when the total number of threads/block times the number of blocks is larger than the number of data points. Smart parameterization can help avoid this, but it's not always feasible to avoid it entirely. 
 """
 
 # ╔═╡ de403ee8-b6e4-4bd1-b332-c4e92a481994
@@ -324,7 +340,7 @@ big_2xy
 # ╔═╡ 915cf22c-5371-45fe-b833-c953a16ace06
 md"""
 ## Calling functions
-A thread can jump into helper functions as well! However, we must ensure that the helper function is specialized (ie. type stable) when we initialize it. This ensures that the GPU doesn't crash from having to figure out the types at runtime.
+A thread can jump into helper functions as well! However, we must ensure that the helper function is specialized (ie. type stable) at compile time. This ensures that the GPU doesn't crash from having to figure out the types at runtime.
 """
 
 # ╔═╡ a636a6d5-f8fd-453d-897e-130361cccd7e
@@ -403,21 +419,20 @@ f
 md"""
 ### Some additional uses of synchronization:
 
+
+To verify or count conditions across threads (our predicates **pred**):
 - `sync_threads_count(pred)`: returns the number of threads for which pred was true
 - `sync_threads_and(pred)`: returns true if pred was true for all threads
 - `sync_threads_or(pred)`: returns true if pred was true for any thread
 
-To maintain multiple thread synchronizations via execution, we can use:
+To maintain multiple thread synchronizations via execution (i.e. have different sync_threads in different situations), we can use:
 - `barrier_sync()`
 
-To maintain multiple thread synchronizations via memory, we can use:
+To maintain multiple thread synchronizations via memory (e.g. to make sure parts of the memory are visible to other threads at the correct moment), we can use:
 - `threadfence_block`: ensure memory ordering for all threads in the block
 - `threadfence`: the same, but for all threads on the device
 - `threadfence_system`: the same, but including host threads and threads on peer devices
 """
-
-# ╔═╡ a4ca7de4-7002-4172-8dac-faa18fadd3d1
-# could use more explanation
 
 # ╔═╡ 8264c2e0-f916-4687-ad76-563a2612e831
 md"""
@@ -509,16 +524,38 @@ We can also introduce the parameter `offset`: the offset in  bytes from the star
 """
 
 # ╔═╡ 4ca8a843-f128-47e8-addc-c6c71c87b153
-# offset example if time... use two shared arrays...?
+function dynamic_kernel_multi(input::CuDeviceArray{T}) where T
+	i = threadIdx().x # row
+	j = blockIdx().x # col
+	n = blockDim().x # n_rows
+	index = (j - 1) * n + i
+
+	data = CuDynamicSharedArray(T, n)
+	data2 = CuDynamicSharedArray(T, n, sizeof(data))
+
+	@inbounds begin
+		data[n - i + 1] = input[index]
+		data2[n - i + 1] = input[index]
+		sync_threads()
+		input[index] = data[i]+data[i]
+	end
+	return nothing
+end
+
+# ╔═╡ 8a7d56a0-691e-4f87-a1d8-5099e260b363
+h2 = CuArray([Vector(1:5) Vector(1:5) Vector(1:5)])
+
+# ╔═╡ 18e3573d-dc9f-4549-b2b1-7a07e75776fa
+@cuda threads=size(h2, 1) blocks=size(h2, 2) shmem=sizeof(h2[:, 1])*2 dynamic_kernel_multi(h2);
+
+# ╔═╡ fc67e163-e8a7-4a7b-ad1b-bd4749f1ee2b
+h2
 
 # ╔═╡ 3d00f0f7-1a6a-4f01-a304-a57cb944c0ca
 md"""
 ## Atomic operations
 These are operations that execute read/modify/write in one step, such that when  working with shared memory, there are no interruptions. Essentially locks a piece of data while it's being operated on so nothing else can touch it!
 """
-
-# ╔═╡ 49799e6f-daf5-4d9b-a53b-23624a839166
-# not sure if these could use a more relevant example
 
 # ╔═╡ 3488c501-c9fa-4f2f-adae-1211e7b2b5f8
 md"""
@@ -546,6 +583,8 @@ o
 # ╔═╡ 9506bda1-1871-416e-88f3-a9c3232ad0e0
 md"""
 Without using the atomics, all threads would have read the initial value (1.0) then simultaneously overwritten one another, which would have resulted in 2.0. We can see from the result that using `CUDA.atomic_add!()`, the threads are forced to essentially take turns and properly accumulate the sums to 5.0.
+
+**Note:** Atomics other than CUDA.atomic_add!() are not supported for float values. 
 """
 
 # ╔═╡ 2058c67c-d4cd-4140-9791-bb40dff0dbdb
@@ -608,7 +647,7 @@ q
 
 # ╔═╡ 4318b91e-6a42-4de9-859a-93fc1fe14aaf
 md"""
-Why `device_synchronize()`?
+### Why `device_synchronize()`?
 """
 
 # ╔═╡ a3ae6716-37cc-4b7d-94cf-0e2f80aa7b13
@@ -667,7 +706,7 @@ CUDA = "~5.9.3"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.7"
+julia_version = "1.11.8"
 manifest_format = "2.0"
 project_hash = "3fc610423ed3527af127b441755860ab16ce8f53"
 
@@ -1320,10 +1359,11 @@ version = "17.4.0+2"
 """
 
 # ╔═╡ Cell order:
-# ╠═69fc927d-adee-4c6d-aff6-a9a35350070d
-# ╠═7a24781f-c7d5-4b17-85d8-f040eae59fa5
+# ╟─69fc927d-adee-4c6d-aff6-a9a35350070d
+# ╟─7a24781f-c7d5-4b17-85d8-f040eae59fa5
 # ╠═2d61a06c-1d62-4979-b92f-784a92741ee6
 # ╟─cdc41743-80d0-449c-a43f-a4685a8d75e3
+# ╟─afa298c8-f482-40ca-a73d-80ffab61c8e7
 # ╟─2627ab83-84ed-4ed3-9dfc-95a1bdb96bcf
 # ╟─1d38f704-0c74-41e0-ad24-e37e7a8dd66c
 # ╟─b496b692-d39b-4f25-ae71-f0a697681175
@@ -1383,7 +1423,7 @@ version = "17.4.0+2"
 # ╠═09da573b-81da-498c-a42c-9e3d5a262eda
 # ╠═e4f0c859-bb4a-4d9c-8789-ab336b831ac8
 # ╠═3ab19663-2b92-4cb3-9664-0e23a59f432a
-# ╟─915cf22c-5371-45fe-b833-c953a16ace06
+# ╠═915cf22c-5371-45fe-b833-c953a16ace06
 # ╠═a636a6d5-f8fd-453d-897e-130361cccd7e
 # ╠═3e25a74b-f32c-4896-9c88-0b038cccb157
 # ╠═04541ad0-120a-488d-b31a-4381e43f5e89
@@ -1401,7 +1441,6 @@ version = "17.4.0+2"
 # ╠═ed5e86f1-153e-4b49-9f19-dccab1b8eac0
 # ╠═5ea515ea-2cf2-4ae9-9f53-96178c2431e6
 # ╟─9229435e-648f-4df3-a502-82dfc3d80b50
-# ╠═a4ca7de4-7002-4172-8dac-faa18fadd3d1
 # ╟─8264c2e0-f916-4687-ad76-563a2612e831
 # ╟─2ee211f9-02ee-41d6-ab45-d65121dcdeb6
 # ╠═54b2df6f-9d01-4e9c-b6a6-020fe8198237
@@ -1418,8 +1457,10 @@ version = "17.4.0+2"
 # ╠═56ec0f87-7455-40af-87e1-ee138804ced7
 # ╟─f5993620-a538-4cea-b182-1f702966db75
 # ╠═4ca8a843-f128-47e8-addc-c6c71c87b153
+# ╠═8a7d56a0-691e-4f87-a1d8-5099e260b363
+# ╠═18e3573d-dc9f-4549-b2b1-7a07e75776fa
+# ╠═fc67e163-e8a7-4a7b-ad1b-bd4749f1ee2b
 # ╟─3d00f0f7-1a6a-4f01-a304-a57cb944c0ca
-# ╠═49799e6f-daf5-4d9b-a53b-23624a839166
 # ╟─3488c501-c9fa-4f2f-adae-1211e7b2b5f8
 # ╠═31f51b5a-c3be-40be-a58c-144a8ea96def
 # ╠═4db5c967-c09a-44c5-9b9c-b32e2491897d
