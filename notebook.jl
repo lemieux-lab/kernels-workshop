@@ -343,9 +343,6 @@ md"""
 A thread can jump into helper functions as well! However, we must ensure that the helper function is specialized (ie. type stable) at compile time. This ensures that the GPU doesn't crash from having to figure out the types at runtime.
 """
 
-# ╔═╡ a636a6d5-f8fd-453d-897e-130361cccd7e
-# do more testing on this; i'm not sure why but the type instability error only results from when we use @view (or broadcast??).
-
 # ╔═╡ 3e25a74b-f32c-4896-9c88-0b038cccb157
 function calculations_unstable!(x, f)
 	x .= f.(x)
@@ -706,7 +703,7 @@ CUDA = "~5.9.3"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.8"
+julia_version = "1.11.7"
 manifest_format = "2.0"
 project_hash = "3fc610423ed3527af127b441755860ab16ce8f53"
 
@@ -1360,7 +1357,7 @@ version = "17.4.0+2"
 
 # ╔═╡ Cell order:
 # ╟─69fc927d-adee-4c6d-aff6-a9a35350070d
-# ╟─7a24781f-c7d5-4b17-85d8-f040eae59fa5
+# ╠═7a24781f-c7d5-4b17-85d8-f040eae59fa5
 # ╠═2d61a06c-1d62-4979-b92f-784a92741ee6
 # ╟─cdc41743-80d0-449c-a43f-a4685a8d75e3
 # ╟─afa298c8-f482-40ca-a73d-80ffab61c8e7
@@ -1423,8 +1420,7 @@ version = "17.4.0+2"
 # ╠═09da573b-81da-498c-a42c-9e3d5a262eda
 # ╠═e4f0c859-bb4a-4d9c-8789-ab336b831ac8
 # ╠═3ab19663-2b92-4cb3-9664-0e23a59f432a
-# ╠═915cf22c-5371-45fe-b833-c953a16ace06
-# ╠═a636a6d5-f8fd-453d-897e-130361cccd7e
+# ╟─915cf22c-5371-45fe-b833-c953a16ace06
 # ╠═3e25a74b-f32c-4896-9c88-0b038cccb157
 # ╠═04541ad0-120a-488d-b31a-4381e43f5e89
 # ╠═cf3f80ec-8b34-463d-a20d-9cbab04a76b8
